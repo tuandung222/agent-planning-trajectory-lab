@@ -25,6 +25,74 @@ Then adapted to:
 - Read: `docs/AGENT_ARCHITECTURE.md`
 - Tracing for training data: `docs/TRAJECTORY_TRACING.md`
 
+### System Architecture
+
+```mermaid
+flowchart LR
+    U["User (CLI / Notebook)"] --> M["main.py"]
+    M --> C["Config (.env + args)"]
+    C --> W["PlanningMarketResearchWorkflow"]
+
+    W --> P["Planner Agent (LLM)"]
+    W --> E["Executor Agent (LLM + Tools)"]
+    W --> S["Synthesis Agent (LLM + save_findings)"]
+
+    E --> T1["web_search (Serper API)"]
+    E --> T2["calculator (safe AST)"]
+    S --> T3["save_findings (markdown)"]
+
+    P --> R["Provider Router"]
+    E --> R
+    S --> R
+    R --> O["OpenAIChatClient (default)"]
+    R --> A["AnthropicClient (optional)"]
+
+    S --> F["Final report file"]
+```
+
+### Runtime Flow
+
+```mermaid
+sequenceDiagram
+    participant User
+    participant CLI as main.py
+    participant WF as Workflow
+    participant Planner
+    participant Executor
+    participant Tools
+    participant Synth as Synthesis
+
+    User->>CLI: topic + provider/model
+    CLI->>WF: create workflow
+    WF->>Planner: Phase 1 (Plan)
+    Planner-->>WF: full plan
+    WF->>Executor: Phase 2 (Execute)
+    Executor->>Tools: web_search/calculator
+    Tools-->>Executor: results
+    Executor-->>WF: aggregated findings
+    WF->>Synth: Phase 3 (Synthesize)
+    Synth-->>WF: markdown report
+    WF-->>CLI: result
+    CLI-->>User: output path + trace path
+```
+
+### Failure Path
+
+```mermaid
+flowchart TD
+    A["Start"] --> B{"Config valid?"}
+    B -- No --> B1["Stop with config error"]
+    B -- Yes --> C{"LLM auth valid?"}
+    C -- No --> C1["Stop with 401/auth error"]
+    C -- Yes --> D{"Tool call success?"}
+    D -- No --> D1["Capture tool error in trajectory"]
+    D1 --> E["Continue next steps"]
+    D -- Yes --> E
+    E --> F{"Synthesis success?"}
+    F -- No --> F1["Raise runtime error"]
+    F -- Yes --> G["Write report + trajectory summary"]
+```
+
 ## Provider model defaults
 
 - Default provider: `openai`
