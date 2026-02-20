@@ -17,6 +17,7 @@ Blog Post: https://genmind.ch/posts/Planning-Pattern-for-AI-Agents-Strategic-Rea
 
 import os
 import logging
+from typing import Any
 
 from agent_framework import (
     Agent,
@@ -29,6 +30,7 @@ from agent_framework.openai import OpenAIChatClient
 from agent_framework.anthropic import AnthropicClient
 
 from tools import web_search, calculator, save_findings
+from trajectory_tracing import TrajectoryTracer, tracing_context
 
 # Configure logging
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
@@ -52,7 +54,7 @@ class PlanningMarketResearchWorkflow:
         - Planning: Plan → Execute All → Synthesize (one upfront strategy)
     """
 
-    def __init__(self, topic: str):
+    def __init__(self, topic: str, tracer: TrajectoryTracer | None = None):
         """
         Initialize the Planning workflow for market research.
 
@@ -60,6 +62,7 @@ class PlanningMarketResearchWorkflow:
             topic: Research topic (e.g., "AI agent market size 2024-2026")
         """
         self.topic = topic
+        self.tracer = tracer
 
         self.provider = os.getenv("LLM_PROVIDER", "openai").strip().lower()
         self.model = self._resolve_model()
@@ -73,6 +76,24 @@ class PlanningMarketResearchWorkflow:
 
         # Build the workflow
         self.workflow = self._build_workflow()
+
+    def _snapshot_messages(self, result: Any) -> None:
+        """Persist compact snapshots of returned messages into trajectory logs."""
+        if not self.tracer or not self.tracer.enabled:
+            return
+        messages = getattr(result, "messages", None)
+        if not messages:
+            return
+        for msg in messages:
+            role = getattr(msg, "role", "unknown")
+            contents = getattr(msg, "contents", []) or []
+            text_chunks = []
+            for content in contents:
+                text = getattr(content, "text", None)
+                if text:
+                    text_chunks.append(text)
+            if text_chunks:
+                self.tracer.log_message_snapshot(role=role, text="\n".join(text_chunks))
 
     def _resolve_model(self) -> str:
         """Resolve model name for selected provider."""
@@ -286,6 +307,8 @@ Generate the final report now.""",
             RuntimeError: If workflow execution fails
         """
         try:
+            if self.tracer:
+                self.tracer.log_phase("workflow", "started", topic=self.topic)
             logger.info("\n" + "=" * 60)
             logger.info("🎯 PLANNING PATTERN WORKFLOW - START")
             logger.info("=" * 60)
@@ -304,10 +327,18 @@ Generate the final report now.""",
             logger.info("⚙️  PHASE 2: Executing Plan Steps...")
             logger.info("📊 PHASE 3: Synthesizing Final Report...\n")
 
-            result = await self.workflow.run([user_message])
+            if self.tracer:
+                self.tracer.log_phase("plan_execute_synthesize", "started")
+
+            with tracing_context(self.tracer):
+                result = await self.workflow.run([user_message])
+
+            if self.tracer:
+                self.tracer.log_phase("plan_execute_synthesize", "completed")
 
             # Extract final report from result
             if result and result.messages:
+                self._snapshot_messages(result)
                 final_message = result.messages[-1]
                 if final_message.contents:
                     report = final_message.contents[0].text
@@ -316,6 +347,8 @@ Generate the final report now.""",
                     logger.info("✅ PLANNING WORKFLOW COMPLETE")
                     logger.info("=" * 60 + "\n")
 
+                    if self.tracer:
+                        self.tracer.complete(status="success", report_text=report)
                     return report
                 else:
                     raise RuntimeError("Workflow produced no output content")
@@ -324,10 +357,15 @@ Generate the final report now.""",
 
         except Exception as e:
             logger.error(f"Workflow execution failed: {str(e)}", exc_info=True)
+            if self.tracer:
+                self.tracer.complete(status="error", error=str(e))
             raise RuntimeError(f"Planning workflow failed: {str(e)}")
 
 
-async def create_market_research_workflow(topic: str) -> PlanningMarketResearchWorkflow:
+async def create_market_research_workflow(
+    topic: str,
+    tracer: TrajectoryTracer | None = None
+) -> PlanningMarketResearchWorkflow:
     """
     Factory function to create a Planning workflow instance.
 
@@ -337,7 +375,7 @@ async def create_market_research_workflow(topic: str) -> PlanningMarketResearchW
     Returns:
         Configured PlanningMarketResearchWorkflow instance
     """
-    return PlanningMarketResearchWorkflow(topic)
+    return PlanningMarketResearchWorkflow(topic, tracer=tracer)
 
 
 # Export public API

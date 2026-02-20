@@ -18,6 +18,12 @@ Then adapted to:
 - `tools.py`: `web_search`, `calculator`, `save_findings`
 - `.env.example`: provider/key configuration
 - `planning_pattern_interactive_lab.ipynb`: notebook-first workflow
+- `docs/AGENT_ARCHITECTURE.md`: professional architecture and flow diagrams
+
+## Architecture
+
+- Read: `docs/AGENT_ARCHITECTURE.md`
+- Tracing for training data: `docs/TRAJECTORY_TRACING.md`
 
 ## Provider model defaults
 
@@ -66,6 +72,12 @@ SERPER_API_KEY=your-serper-api-key
 
 ```bash
 python main.py "AI agent market size 2024-2026"
+```
+
+Disable tracing for a specific run:
+
+```bash
+python main.py "AI agent market size 2024-2026" --no-trace
 ```
 
 Override provider/model at runtime:

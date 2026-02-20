@@ -31,6 +31,7 @@ from dotenv import load_dotenv
 load_dotenv()
 
 from planning_workflow import PlanningMarketResearchWorkflow
+from trajectory_tracing import TrajectoryTracer
 
 # Configure logging
 logging.basicConfig(
@@ -97,10 +98,23 @@ def save_report(content: str, output_file: str) -> None:
 async def async_main(args):
     """Async main function."""
     start_time = datetime.now()
+    provider = os.getenv("LLM_PROVIDER", "openai").strip().lower()
+    model = (
+        os.getenv("ANTHROPIC_MODEL", "claude-opus-4-6")
+        if provider == "anthropic"
+        else os.getenv("OPENAI_MODEL", "gpt-4.1-mini")
+    )
+    tracer = TrajectoryTracer(
+        topic=args.topic,
+        provider=provider,
+        model=model,
+        enabled=not args.no_trace,
+        output_dir=Path(args.trace_dir)
+    )
 
     try:
         # Create workflow
-        workflow = PlanningMarketResearchWorkflow(topic=args.topic)
+        workflow = PlanningMarketResearchWorkflow(topic=args.topic, tracer=tracer)
 
         # Execute workflow
         result = await workflow.execute()
@@ -117,6 +131,9 @@ async def async_main(args):
         print("=" * 60)
         print(f"Report saved to: {args.output}")
         print(f"Execution time: {duration:.1f} seconds")
+        if tracer.enabled:
+            print(f"Trajectory: {tracer.file_path}")
+            print(f"Summary: {tracer.summary_path}")
         print("\nNext steps:")
         print(f"  - Review the report: cat {args.output}")
         print("  - Open in your editor for refinement")
@@ -172,6 +189,19 @@ def main():
         default=None,
         choices=['openai', 'anthropic'],
         help='Override LLM provider (default: env LLM_PROVIDER or openai)'
+    )
+
+    parser.add_argument(
+        '--trace-dir',
+        type=str,
+        default=os.getenv("TRACE_DIR", "trajectories"),
+        help='Directory for trajectory JSONL outputs'
+    )
+
+    parser.add_argument(
+        '--no-trace',
+        action='store_true',
+        help='Disable trajectory tracing for this run'
     )
 
     args = parser.parse_args()

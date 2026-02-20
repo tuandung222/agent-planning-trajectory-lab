@@ -13,4 +13,6 @@ __pycache__/
 
 # Runtime artifacts
 outputs/
+trajectories/
 planning_market_report.md
+*.executed.ipynb

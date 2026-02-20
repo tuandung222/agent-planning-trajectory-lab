@@ -20,11 +20,13 @@ import os
 import json
 import ast
 import operator
+import time
 from pathlib import Path
 from typing import Annotated
 import requests
 
 from agent_framework import tool
+from trajectory_tracing import get_current_tracer
 
 
 @tool
@@ -48,13 +50,26 @@ async def web_search(query: Annotated[str, "The search query to execute"]) -> st
         >>> await web_search("Goldman Sachs AI agent deployment")
         >>> await web_search("Planning pattern vs ReAct benchmark")
     """
+    tracer = get_current_tracer()
+    started = time.perf_counter()
+    if tracer:
+        tracer.log_tool_call("web_search", query=query)
+
     api_key = os.getenv("SERPER_API_KEY")
 
     if not api_key:
-        raise RuntimeError(
+        message = (
             "SERPER_API_KEY environment variable not set. "
             "Get your free API key at https://serper.dev"
         )
+        if tracer:
+            tracer.log_tool_result(
+                "web_search",
+                ok=False,
+                latency_ms=int((time.perf_counter() - started) * 1000),
+                result_preview=message,
+            )
+        raise RuntimeError(message)
 
     url = "https://google.serper.dev/search"
     payload = json.dumps({"q": query, "num": 10})
@@ -91,14 +106,46 @@ async def web_search(query: Annotated[str, "The search query to execute"]) -> st
                 "position": item.get('position', 0)
             })
 
-        return json.dumps(formatted_results, indent=2)
+        output = json.dumps(formatted_results, indent=2)
+        if tracer:
+            tracer.log_tool_result(
+                "web_search",
+                ok=True,
+                latency_ms=int((time.perf_counter() - started) * 1000),
+                result_preview=output,
+            )
+        return output
 
     except requests.Timeout:
-        return f"ERROR: Search timed out after 10 seconds for query: {query}"
+        output = f"ERROR: Search timed out after 10 seconds for query: {query}"
+        if tracer:
+            tracer.log_tool_result(
+                "web_search",
+                ok=False,
+                latency_ms=int((time.perf_counter() - started) * 1000),
+                result_preview=output,
+            )
+        return output
     except requests.RequestException as e:
-        return f"ERROR: Search failed: {str(e)}"
+        output = f"ERROR: Search failed: {str(e)}"
+        if tracer:
+            tracer.log_tool_result(
+                "web_search",
+                ok=False,
+                latency_ms=int((time.perf_counter() - started) * 1000),
+                result_preview=output,
+            )
+        return output
     except json.JSONDecodeError:
-        return "ERROR: Failed to parse search results"
+        output = "ERROR: Failed to parse search results"
+        if tracer:
+            tracer.log_tool_result(
+                "web_search",
+                ok=False,
+                latency_ms=int((time.perf_counter() - started) * 1000),
+                result_preview=output,
+            )
+        return output
 
 
 @tool
@@ -126,6 +173,11 @@ async def calculator(
         >>> await calculator("192 / 100")
         "1.92"
     """
+    tracer = get_current_tracer()
+    started = time.perf_counter()
+    if tracer:
+        tracer.log_tool_call("calculator", expression=expression)
+
     ALLOWED_OPS = {
         ast.Add: operator.add,
         ast.Sub: operator.sub,
@@ -162,15 +214,55 @@ async def calculator(
     try:
         tree = ast.parse(expression, mode='eval')
         result = _eval_node(tree.body)
-        return str(result)
+        output = str(result)
+        if tracer:
+            tracer.log_tool_result(
+                "calculator",
+                ok=True,
+                latency_ms=int((time.perf_counter() - started) * 1000),
+                result_preview=output,
+            )
+        return output
     except SyntaxError:
-        return f"ERROR: Invalid expression: {expression}"
+        output = f"ERROR: Invalid expression: {expression}"
+        if tracer:
+            tracer.log_tool_result(
+                "calculator",
+                ok=False,
+                latency_ms=int((time.perf_counter() - started) * 1000),
+                result_preview=output,
+            )
+        return output
     except ValueError as e:
-        return f"ERROR: {str(e)}"
+        output = f"ERROR: {str(e)}"
+        if tracer:
+            tracer.log_tool_result(
+                "calculator",
+                ok=False,
+                latency_ms=int((time.perf_counter() - started) * 1000),
+                result_preview=output,
+            )
+        return output
     except ZeroDivisionError:
-        return "ERROR: Division by zero"
+        output = "ERROR: Division by zero"
+        if tracer:
+            tracer.log_tool_result(
+                "calculator",
+                ok=False,
+                latency_ms=int((time.perf_counter() - started) * 1000),
+                result_preview=output,
+            )
+        return output
     except Exception as e:
-        return f"ERROR: Calculation failed: {str(e)}"
+        output = f"ERROR: Calculation failed: {str(e)}"
+        if tracer:
+            tracer.log_tool_result(
+                "calculator",
+                ok=False,
+                latency_ms=int((time.perf_counter() - started) * 1000),
+                result_preview=output,
+            )
+        return output
 
 
 @tool
@@ -192,6 +284,11 @@ async def save_findings(
         Sanitizes filename to prevent path traversal attacks.
         Only writes to outputs/ subdirectory.
     """
+    tracer = get_current_tracer()
+    started = time.perf_counter()
+    if tracer:
+        tracer.log_tool_call("save_findings", filename=filename, content_size=len(content))
+
     # Sanitize filename (prevent path traversal)
     safe_filename = os.path.basename(filename)
     if not safe_filename.endswith('.md'):
@@ -208,10 +305,26 @@ async def save_findings(
             f.write(content)
 
         size = file_path.stat().st_size
-        return f"✅ Saved {size:,} bytes to {file_path}"
+        output = f"✅ Saved {size:,} bytes to {file_path}"
+        if tracer:
+            tracer.log_tool_result(
+                "save_findings",
+                ok=True,
+                latency_ms=int((time.perf_counter() - started) * 1000),
+                result_preview=output,
+            )
+        return output
 
     except Exception as e:
-        return f"ERROR: Failed to save file: {str(e)}"
+        output = f"ERROR: Failed to save file: {str(e)}"
+        if tracer:
+            tracer.log_tool_result(
+                "save_findings",
+                ok=False,
+                latency_ms=int((time.perf_counter() - started) * 1000),
+                result_preview=output,
+            )
+        return output
 
 
 # Export all tools
