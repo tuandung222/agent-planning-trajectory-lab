@@ -43,7 +43,7 @@ Then adapted to:
 ## Setup
 
 ```bash
-cd examples/planning-claude-sdk-market-research
+cd agent-planning-trajectory-lab
 pip install -r requirements.txt
 cp .env.example .env
 ```
@@ -57,6 +57,8 @@ LLM_PROVIDER=openai
 OPENAI_API_KEY=sk-proj-...
 OPENAI_MODEL=gpt-4.1-mini
 SERPER_API_KEY=your-serper-api-key
+TRACE_TRAJECTORY=true
+TRACE_DIR=trajectories
 ```
 
 Optional Anthropic config:
@@ -87,6 +89,12 @@ python main.py "AI agent market size 2024-2026" --provider openai --model gpt-4.
 python main.py "AI agent market size 2024-2026" --provider anthropic --model claude-opus-4-6
 ```
 
+Write traces to a custom directory:
+
+```bash
+python main.py "AI agent market size 2024-2026" --trace-dir /tmp/agent-traces
+```
+
 ## Run (Notebook)
 
 Open and run:
@@ -98,6 +106,13 @@ Notebook flow:
 3. Direct tool testing
 4. Workflow construction
 5. End-to-end inference
+
+## Outputs
+
+- Final report: `planning_market_report.md` (or path from `--output`)
+- Tool markdown output (optional): `outputs/*.md`
+- Trajectory events: `trajectories/<run_id>.jsonl`
+- Trajectory summary: `trajectories/<run_id>.summary.json`
 
 ## Security notes
 
