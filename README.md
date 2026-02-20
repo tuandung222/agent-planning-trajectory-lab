@@ -24,6 +24,7 @@ Then adapted to:
 
 - Read: `docs/AGENT_ARCHITECTURE.md`
 - Tracing for training data: `docs/TRAJECTORY_TRACING.md`
+- Agent Framework tutorial series: `docs/agent-framework-series/README.md`
 
 ### System Architecture
 
