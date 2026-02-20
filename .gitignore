@@ -1,0 +1,16 @@
+# Secrets
+.env
+*.pem
+
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+
+# Notebook
+.ipynb_checkpoints/
+
+# Runtime artifacts
+outputs/
+planning_market_report.md
