@@ -112,7 +112,7 @@ flowchart TD
 ## Setup
 
 ```bash
-cd agent-planning-trajectory-lab
+cd plan-execute-synthesize-agent
 pip install -r requirements.txt
 cp .env.example .env
 ```
