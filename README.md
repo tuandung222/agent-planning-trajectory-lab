@@ -14,7 +14,9 @@ Then adapted to:
 ## What's inside
 
 - `main.py`: CLI entrypoint
+- `main_langgraph.py`: LangGraph CLI entrypoint
 - `planning_workflow.py`: planner/executor/synthesis workflow
+- `langgraph_workflow.py`: LangGraph planner/executor/synthesis workflow
 - `tools.py`: `web_search`, `calculator`, `save_findings`
 - `.env.example`: provider/key configuration
 - `planning_pattern_interactive_lab.ipynb`: notebook-first workflow
@@ -23,6 +25,7 @@ Then adapted to:
 ## Architecture
 
 - Read: `docs/AGENT_ARCHITECTURE.md`
+- LangGraph version: `docs/LANGGRAPH_IMPLEMENTATION.md`
 - Tracing for training data: `docs/TRAJECTORY_TRACING.md`
 - Agent Framework tutorial series: `docs/agent-framework-series/README.md`
 
@@ -168,6 +171,12 @@ Override provider/model at runtime:
 ```bash
 python main.py "AI agent market size 2024-2026" --provider openai --model gpt-4.1-mini
 python main.py "AI agent market size 2024-2026" --provider anthropic --model claude-opus-4-6
+```
+
+Run with LangGraph implementation:
+
+```bash
+python main_langgraph.py "AI agent market size 2024-2026" --provider openai --model gpt-4.1-mini
 ```
 
 Write traces to a custom directory:
