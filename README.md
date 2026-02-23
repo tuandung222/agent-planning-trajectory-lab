@@ -1,140 +1,94 @@
-# Planning Pattern Market Research (OpenAI default)
+# Plan-and-Execute Agent Framework
 
-This project is a Planning-pattern agent workflow (Plan -> Execute -> Synthesize) built with Microsoft Agent Framework.
+Production-oriented implementation of the **Planning pattern** for agentic systems:
 
-This folder was cloned from the original implementation at:
+**Plan -> Execute -> Synthesize**
+
+This repository started from a cloned example and has been significantly extended into a reusable framework for research automation, experimentation, and trajectory data collection.
+
+## Origin and evolution
+
+Original source (cloned):
 - https://github.com/gsantopaolo/gsantopaolo.github.io/tree/main/examples/planning-claude-sdk-market-research
 
-Then adapted to:
-- Add OpenAI client support
-- Use OpenAI as default provider/model
-- Keep Anthropic as optional provider
-- Add interactive notebook for DS/AI researchers
+This codebase now diverges substantially from the original.
 
-## What's inside
+## What changed (major)
 
-- `main.py`: CLI entrypoint
-- `main_langgraph.py`: LangGraph CLI entrypoint
-- `planning_workflow.py`: planner/executor/synthesis workflow
-- `langgraph_workflow.py`: LangGraph planner/executor/synthesis workflow
-- `tools.py`: `web_search`, `calculator`, `save_findings`
-- `.env.example`: provider/key configuration
-- `planning_pattern_interactive_lab.ipynb`: notebook-first workflow
-- `docs/AGENT_ARCHITECTURE.md`: professional architecture and flow diagrams
+- OpenAI client integration with **OpenAI as default provider**
+- Anthropic kept as optional provider
+- Added **LangGraph implementation** in parallel with Microsoft Agent Framework flow
+- Added **trajectory tracing** (JSONL + run summary) for offline analysis and training datasets
+- Added fallback web search stack with **no search API key required** (DuckDuckGo + Wikipedia)
+- Added notebook-first UX for Data Scientist / AI Researcher workflows
+- Added architecture docs and a full documentation series for the framework
 
-## Architecture
-
-- Read: `docs/AGENT_ARCHITECTURE.md`
-- LangGraph version: `docs/LANGGRAPH_IMPLEMENTATION.md`
-- Tracing for training data: `docs/TRAJECTORY_TRACING.md`
-- Agent Framework tutorial series: `docs/agent-framework-series/README.md`
-
-### System Architecture
+## Current architecture
 
 ```mermaid
 flowchart LR
-    U["User (CLI / Notebook)"] --> M["main.py"]
-    M --> C["Config (.env + args)"]
-    C --> W["PlanningMarketResearchWorkflow"]
+    U["User"] --> R["Runtime Entry"]
+    R --> M1["main.py (Agent Framework)"]
+    R --> M2["main_langgraph.py (LangGraph)"]
 
-    W --> P["Planner Agent (LLM)"]
-    W --> E["Executor Agent (LLM + Tools)"]
-    W --> S["Synthesis Agent (LLM + save_findings)"]
+    M1 --> P1["Planner"]
+    M1 --> E1["Executor"]
+    M1 --> S1["Synthesis"]
 
-    E --> T1["web_search (Serper or DuckDuckGo/Wikipedia)"]
-    E --> T2["calculator (safe AST)"]
-    S --> T3["save_findings (markdown)"]
+    M2 --> P2["plan node"]
+    M2 --> E2["execute node"]
+    M2 --> S2["synthesize node"]
 
-    P --> R["Provider Router"]
-    E --> R
-    S --> R
-    R --> O["OpenAIChatClient (default)"]
-    R --> A["AnthropicClient (optional)"]
+    E1 --> T["Tools"]
+    E2 --> T
+    T --> WS["web_search"]
+    T --> CAL["calculator"]
+    T --> SAVE["save_findings"]
 
-    S --> F["Final report file"]
+    WS --> SERP["Serper (optional)"]
+    WS --> DDG["DuckDuckGo (no key)"]
+    WS --> WIKI["Wikipedia API (no key)"]
+
+    P1 --> LLM["Provider Router"]
+    E1 --> LLM
+    S1 --> LLM
+    P2 --> LLM
+    E2 --> LLM
+    S2 --> LLM
+
+    LLM --> OAI["OpenAI (default)"]
+    LLM --> ANT["Anthropic (optional)"]
+
+    M1 --> TR["Trajectory Tracer"]
+    M2 --> TR
+    TR --> JSONL["trajectories/*.jsonl"]
+    TR --> SUM["trajectories/*.summary.json"]
 ```
 
-### Runtime Flow
+## Repository layout
 
-```mermaid
-sequenceDiagram
-    participant User
-    participant CLI as main.py
-    participant WF as Workflow
-    participant Planner
-    participant Executor
-    participant Tools
-    participant Synth as Synthesis
+- `main.py`: Microsoft Agent Framework runtime
+- `main_langgraph.py`: LangGraph runtime
+- `planning_workflow.py`: Plan-Execute-Synthesize workflow (Agent Framework)
+- `langgraph_workflow.py`: Plan-Execute-Synthesize workflow (LangGraph)
+- `tools.py`: `web_search`, `calculator`, `save_findings`
+- `trajectory_tracing.py`: tracing contract and JSONL writer
+- `planning_pattern_interactive_lab.ipynb`: interactive notebook for DS/AI researchers
+- `docs/AGENT_ARCHITECTURE.md`: architecture and flow diagrams
+- `docs/LANGGRAPH_IMPLEMENTATION.md`: LangGraph-specific design
+- `docs/TRAJECTORY_TRACING.md`: trajectory data design and training mindset
+- `docs/agent-framework-series/README.md`: full docs series
 
-    User->>CLI: topic + provider/model
-    CLI->>WF: create workflow
-    WF->>Planner: Phase 1 (Plan)
-    Planner-->>WF: full plan
-    WF->>Executor: Phase 2 (Execute)
-    Executor->>Tools: web_search/calculator
-    Tools-->>Executor: results
-    Executor-->>WF: aggregated findings
-    WF->>Synth: Phase 3 (Synthesize)
-    Synth-->>WF: markdown report
-    WF-->>CLI: result
-    CLI-->>User: output path + trace path
-```
-
-### Failure Path
-
-```mermaid
-flowchart TD
-    A["Start"] --> B{"Config valid?"}
-    B -- No --> B1["Stop with config error"]
-    B -- Yes --> C{"LLM auth valid?"}
-    C -- No --> C1["Stop with 401/auth error"]
-    C -- Yes --> D{"Tool call success?"}
-    D -- No --> D1["Capture tool error in trajectory"]
-    D1 --> E["Continue next steps"]
-    D -- Yes --> E
-    E --> F{"Synthesis success?"}
-    F -- No --> F1["Raise runtime error"]
-    F -- Yes --> G["Write report + trajectory summary"]
-```
-
-## Provider model defaults
-
-- Default provider: `openai`
-- Default OpenAI model: `gpt-4.1-mini`
-- Optional provider: `anthropic` (`claude-opus-4-6` default)
-
-## Requirements
-
-- Python 3.10+
-- `agent-framework` (pre-release)
-- Optional Serper API key (`SERPER_API_KEY`) for premium web search
-- No-key fallback search via DuckDuckGo + Wikipedia
-- LLM API key:
-  - OpenAI: `OPENAI_API_KEY` (default path)
-  - Anthropic: `ANTHROPIC_API_KEY` (if `LLM_PROVIDER=anthropic`)
-
-## Setup
+## Quickstart (conda: vllm)
 
 ```bash
 cd plan-execute-synthesize-agent
+conda activate vllm
 pip install -r requirements.txt
 cp .env.example .env
 ```
 
-Edit `.env`.
-
-Minimal OpenAI config:
-
-```dotenv
-LLM_PROVIDER=openai
-OPENAI_API_KEY=sk-proj-...
-OPENAI_MODEL=gpt-4.1-mini
-SERPER_API_KEY=your-serper-api-key
-TRACE_TRAJECTORY=true
-TRACE_DIR=trajectories
-```
-
-No-key search mode (DuckDuckGo + Wikipedia fallback):
+Minimal `.env` (OpenAI default):
 
 ```dotenv
 LLM_PROVIDER=openai
@@ -145,80 +99,100 @@ TRACE_TRAJECTORY=true
 TRACE_DIR=trajectories
 ```
 
-Optional Anthropic config:
+Optional Anthropic mode:
 
 ```dotenv
 LLM_PROVIDER=anthropic
 ANTHROPIC_API_KEY=sk-ant-...
 ANTHROPIC_MODEL=claude-opus-4-6
-SERPER_API_KEY=your-serper-api-key
+SERPER_API_KEY=
+TRACE_TRAJECTORY=true
+TRACE_DIR=trajectories
 ```
 
-## Run (CLI)
+## Run
+
+Agent Framework runtime:
 
 ```bash
 python main.py "AI agent market size 2024-2026"
 ```
 
-Disable tracing for a specific run:
-
-```bash
-python main.py "AI agent market size 2024-2026" --no-trace
-```
-
-Override provider/model at runtime:
-
-```bash
-python main.py "AI agent market size 2024-2026" --provider openai --model gpt-4.1-mini
-python main.py "AI agent market size 2024-2026" --provider anthropic --model claude-opus-4-6
-```
-
-Run with LangGraph implementation:
+LangGraph runtime:
 
 ```bash
 python main_langgraph.py "AI agent market size 2024-2026" --provider openai --model gpt-4.1-mini
 ```
 
-Write traces to a custom directory:
+Disable tracing:
+
+```bash
+python main.py "AI agent market size 2024-2026" --no-trace
+```
+
+Custom trace directory:
 
 ```bash
 python main.py "AI agent market size 2024-2026" --trace-dir /tmp/agent-traces
 ```
 
-## Run (Notebook)
+## Notebook workflow
 
 Open and run:
 - `planning_pattern_interactive_lab.ipynb`
 
-Notebook flow:
-1. Env + dependency checks
-2. Key/provider diagnostics
-3. Direct tool testing
-4. Workflow construction
-5. End-to-end inference
+Notebook includes:
+- env and dependency checks
+- provider/key diagnostics
+- direct tool testing
+- workflow construction
+- end-to-end inference run
 
-## Outputs
+## Tracing for training data
 
-- Final report: `planning_market_report.md` (or path from `--output`)
-- Tool markdown output (optional): `outputs/*.md`
-- Trajectory events: `trajectories/<run_id>.jsonl`
-- Trajectory summary: `trajectories/<run_id>.summary.json`
+Each run produces:
+- `trajectories/<run_id>.jsonl`
+- `trajectories/<run_id>.summary.json`
 
-## Search Quality Notes
+Typical events:
+- `run_started`
+- `phase`
+- `tool_call`
+- `tool_result`
+- `message_snapshot`
+- `run_completed`
+- `final_report`
 
-- Best quality: configure `SERPER_API_KEY` (more stable market/industry links).
-- No-key mode (`DuckDuckGo + Wikipedia`) is convenient for development and demos, but source quality and coverage can vary by query.
-- For decision-grade reports, prefer:
-  1. Serper enabled
-  2. Cross-verification across at least 2 independent sources
-  3. Manual review of critical market figures before sharing externally
+This structure is designed for:
+- trajectory analysis
+- supervised finetuning dataset curation
+- reward/preference data preparation
 
-## Security notes
+## Search stack and quality
 
-- Never commit `.env`.
-- Rotate keys immediately if they were shared in plaintext.
-- Keep API keys in environment variables or secret manager.
+`web_search` provider order:
+1. Serper (if `SERPER_API_KEY` is set)
+2. DuckDuckGo
+3. Wikipedia API
 
-## Notes
+Quality guidance:
+- Enable Serper for more stable market/industry sources
+- In no-key mode, always cross-check critical numbers from multiple independent links
 
-`agent-framework` is currently pre-release; APIs may change. This project already includes compatibility updates for current package behavior.
+## Project status
+
+- LangGraph implementation: working
+- OpenAI default provider: working
+- Anthropic optional provider: supported
+- Tracing pipeline: working
+- Notebook path: available for interactive exploration
+
+## Security
+
+- Never commit `.env`
+- Never commit API keys
+- Rotate any key immediately if it was exposed
+
+## Acknowledgement
+
+Thanks to the original author for the initial Planning pattern example. This repository keeps attribution and extends the project into a broader agent-framework implementation.
