@@ -38,7 +38,7 @@ flowchart LR
     W --> E["Executor Agent (LLM + Tools)"]
     W --> S["Synthesis Agent (LLM + save_findings)"]
 
-    E --> T1["web_search (Serper API)"]
+    E --> T1["web_search (Serper or DuckDuckGo/Wikipedia)"]
     E --> T2["calculator (safe AST)"]
     S --> T3["save_findings (markdown)"]
 
@@ -104,7 +104,8 @@ flowchart TD
 
 - Python 3.10+
 - `agent-framework` (pre-release)
-- Serper API key (`SERPER_API_KEY`) for web search
+- Optional Serper API key (`SERPER_API_KEY`) for premium web search
+- No-key fallback search via DuckDuckGo + Wikipedia
 - LLM API key:
   - OpenAI: `OPENAI_API_KEY` (default path)
   - Anthropic: `ANTHROPIC_API_KEY` (if `LLM_PROVIDER=anthropic`)
@@ -126,6 +127,17 @@ LLM_PROVIDER=openai
 OPENAI_API_KEY=sk-proj-...
 OPENAI_MODEL=gpt-4.1-mini
 SERPER_API_KEY=your-serper-api-key
+TRACE_TRAJECTORY=true
+TRACE_DIR=trajectories
+```
+
+No-key search mode (DuckDuckGo + Wikipedia fallback):
+
+```dotenv
+LLM_PROVIDER=openai
+OPENAI_API_KEY=sk-proj-...
+OPENAI_MODEL=gpt-4.1-mini
+SERPER_API_KEY=
 TRACE_TRAJECTORY=true
 TRACE_DIR=trajectories
 ```
@@ -182,6 +194,15 @@ Notebook flow:
 - Tool markdown output (optional): `outputs/*.md`
 - Trajectory events: `trajectories/<run_id>.jsonl`
 - Trajectory summary: `trajectories/<run_id>.summary.json`
+
+## Search Quality Notes
+
+- Best quality: configure `SERPER_API_KEY` (more stable market/industry links).
+- No-key mode (`DuckDuckGo + Wikipedia`) is convenient for development and demos, but source quality and coverage can vary by query.
+- For decision-grade reports, prefer:
+  1. Serper enabled
+  2. Cross-verification across at least 2 independent sources
+  3. Manual review of critical market figures before sharing externally
 
 ## Security notes
 

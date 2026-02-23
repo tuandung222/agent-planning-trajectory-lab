@@ -21,6 +21,8 @@ import json
 import ast
 import operator
 import time
+import re
+import html
 from pathlib import Path
 from typing import Annotated
 import requests
@@ -28,23 +30,142 @@ import requests
 from agent_framework import tool
 from trajectory_tracing import get_current_tracer
 
+try:
+    from ddgs import DDGS
+except Exception:  # pragma: no cover - graceful fallback when dependency missing
+    DDGS = None
+
+
+def _search_serper(query: str, api_key: str) -> list[dict]:
+    """Search via Serper API."""
+    url = "https://google.serper.dev/search"
+    payload = json.dumps({"q": query, "num": 10})
+    headers = {
+        "X-API-KEY": api_key,
+        "Content-Type": "application/json",
+    }
+
+    response = requests.post(url, data=payload, headers=headers, timeout=10)
+    response.raise_for_status()
+    results = response.json()
+
+    formatted_results = []
+
+    if "knowledgeGraph" in results:
+        kg = results["knowledgeGraph"]
+        formatted_results.append({
+            "source_engine": "serper_knowledge_graph",
+            "type": "knowledge_graph",
+            "title": kg.get("title", ""),
+            "snippet": kg.get("description", ""),
+            "link": kg.get("source", ""),
+            "position": 0,
+            "attributes": kg.get("attributes", {}),
+        })
+
+    for item in results.get("organic", [])[:5]:
+        formatted_results.append({
+            "source_engine": "serper",
+            "title": item.get("title", "No title"),
+            "snippet": item.get("snippet", "No snippet"),
+            "link": item.get("link", ""),
+            "position": item.get("position", 0),
+        })
+
+    return formatted_results
+
+
+def _search_duckduckgo(query: str) -> list[dict]:
+    """Search via DuckDuckGo (no API key required)."""
+    if DDGS is None:
+        raise RuntimeError(
+            "ddgs package is not installed. "
+            "Run: pip install ddgs"
+        )
+
+    formatted_results = []
+    with DDGS() as ddgs:
+        raw_results = list(ddgs.text(query, max_results=5))
+    for idx, item in enumerate(raw_results, start=1):
+        formatted_results.append({
+            "source_engine": "duckduckgo",
+            "title": item.get("title", "No title"),
+            "snippet": item.get("body", "No snippet"),
+            "link": item.get("href", ""),
+            "position": idx,
+        })
+
+    return formatted_results
+
+
+def _search_wikipedia(query: str) -> list[dict]:
+    """Search Wikipedia API (no API key required)."""
+    params = {
+        "action": "query",
+        "list": "search",
+        "srsearch": query,
+        "utf8": 1,
+        "format": "json",
+        "srlimit": 3,
+    }
+    response = requests.get(
+        "https://en.wikipedia.org/w/api.php",
+        params=params,
+        headers={
+            "User-Agent": "plan-execute-synthesize-agent/1.0 (research automation tool)"
+        },
+        timeout=10,
+    )
+    response.raise_for_status()
+    payload = response.json()
+
+    search_items = payload.get("query", {}).get("search", [])
+    formatted_results = []
+    for idx, item in enumerate(search_items, start=1):
+        pageid = item.get("pageid")
+        raw_snippet = item.get("snippet", "")
+        snippet = html.unescape(re.sub(r"<[^>]+>", "", raw_snippet))
+        link = f"https://en.wikipedia.org/?curid={pageid}" if pageid else ""
+        formatted_results.append({
+            "source_engine": "wikipedia",
+            "title": item.get("title", "No title"),
+            "snippet": snippet or "No snippet",
+            "link": link,
+            "position": idx,
+        })
+    return formatted_results
+
+
+def _dedupe_by_link(items: list[dict]) -> list[dict]:
+    """Keep first result for each link."""
+    seen = set()
+    deduped = []
+    for item in items:
+        link = item.get("link", "")
+        key = link.strip().lower()
+        if key and key in seen:
+            continue
+        if key:
+            seen.add(key)
+        deduped.append(item)
+    return deduped
+
 
 @tool
 async def web_search(query: Annotated[str, "The search query to execute"]) -> str:
     """
-    Search the web for current information using Serper API.
+    Search the web for current information using multiple providers.
 
-    This tool enables the agent to access real-time market data,
-    company information, industry reports, and other web content.
+    Provider order:
+    1) Serper (if SERPER_API_KEY is available)
+    2) DuckDuckGo (no API key)
+    3) Wikipedia API (no API key)
 
     Args:
         query: Search query string (e.g., "AI agent market size 2024-2026")
 
     Returns:
         Formatted JSON string with search results including titles, snippets, and URLs
-
-    Raises:
-        RuntimeError: If API key is missing or request fails
 
     Examples:
         >>> await web_search("Goldman Sachs AI agent deployment")
@@ -55,58 +176,30 @@ async def web_search(query: Annotated[str, "The search query to execute"]) -> st
     if tracer:
         tracer.log_tool_call("web_search", query=query)
 
-    api_key = os.getenv("SERPER_API_KEY")
+    aggregated_results: list[dict] = []
+    errors: list[str] = []
 
-    if not api_key:
-        message = (
-            "SERPER_API_KEY environment variable not set. "
-            "Get your free API key at https://serper.dev"
-        )
-        if tracer:
-            tracer.log_tool_result(
-                "web_search",
-                ok=False,
-                latency_ms=int((time.perf_counter() - started) * 1000),
-                result_preview=message,
-            )
-        raise RuntimeError(message)
-
-    url = "https://google.serper.dev/search"
-    payload = json.dumps({"q": query, "num": 10})
-    headers = {
-        'X-API-KEY': api_key,
-        'Content-Type': 'application/json'
-    }
+    api_key = os.getenv("SERPER_API_KEY", "").strip()
+    if api_key:
+        try:
+            aggregated_results.extend(_search_serper(query, api_key))
+        except Exception as e:
+            errors.append(f"serper failed: {str(e)}")
 
     try:
-        response = requests.post(url, data=payload, headers=headers, timeout=10)
-        response.raise_for_status()
-        results = response.json()
+        aggregated_results.extend(_search_duckduckgo(query))
+    except Exception as e:
+        errors.append(f"duckduckgo failed: {str(e)}")
 
-        # Format results for LLM consumption
-        formatted_results = []
+    try:
+        aggregated_results.extend(_search_wikipedia(query))
+    except Exception as e:
+        errors.append(f"wikipedia failed: {str(e)}")
 
-        # Knowledge graph (if available) - highest quality
-        if 'knowledgeGraph' in results:
-            kg = results['knowledgeGraph']
-            formatted_results.append({
-                "type": "knowledge_graph",
-                "title": kg.get('title', ''),
-                "description": kg.get('description', ''),
-                "source": kg.get('source', ''),
-                "attributes": kg.get('attributes', {})
-            })
+    aggregated_results = _dedupe_by_link(aggregated_results)
 
-        # Organic search results
-        for item in results.get('organic', [])[:5]:
-            formatted_results.append({
-                "title": item.get('title', 'No title'),
-                "snippet": item.get('snippet', 'No snippet'),
-                "link": item.get('link', ''),
-                "position": item.get('position', 0)
-            })
-
-        output = json.dumps(formatted_results, indent=2)
+    if aggregated_results:
+        output = json.dumps(aggregated_results[:10], indent=2)
         if tracer:
             tracer.log_tool_result(
                 "web_search",
@@ -116,36 +209,18 @@ async def web_search(query: Annotated[str, "The search query to execute"]) -> st
             )
         return output
 
-    except requests.Timeout:
-        output = f"ERROR: Search timed out after 10 seconds for query: {query}"
-        if tracer:
-            tracer.log_tool_result(
-                "web_search",
-                ok=False,
-                latency_ms=int((time.perf_counter() - started) * 1000),
-                result_preview=output,
-            )
-        return output
-    except requests.RequestException as e:
-        output = f"ERROR: Search failed: {str(e)}"
-        if tracer:
-            tracer.log_tool_result(
-                "web_search",
-                ok=False,
-                latency_ms=int((time.perf_counter() - started) * 1000),
-                result_preview=output,
-            )
-        return output
-    except json.JSONDecodeError:
-        output = "ERROR: Failed to parse search results"
-        if tracer:
-            tracer.log_tool_result(
-                "web_search",
-                ok=False,
-                latency_ms=int((time.perf_counter() - started) * 1000),
-                result_preview=output,
-            )
-        return output
+    output = (
+        "ERROR: All search providers failed for query: "
+        f"{query}. Details: {'; '.join(errors) if errors else 'unknown error'}"
+    )
+    if tracer:
+        tracer.log_tool_result(
+            "web_search",
+            ok=False,
+            latency_ms=int((time.perf_counter() - started) * 1000),
+            result_preview=output,
+        )
+    return output
 
 
 @tool

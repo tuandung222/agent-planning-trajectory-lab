@@ -49,9 +49,7 @@ def validate_environment() -> tuple[bool, list[str]]:
         Tuple of (is_valid, list_of_missing_vars)
     """
     provider = os.getenv("LLM_PROVIDER", "openai").strip().lower()
-    required_vars = {
-        "SERPER_API_KEY": "Serper API key for web search"
-    }
+    required_vars = {}
     if provider == "openai":
         required_vars["OPENAI_API_KEY"] = "OpenAI API key for LLM calls"
     elif provider == "anthropic":
