@@ -95,6 +95,8 @@ class TrajectoryTracer:
         self.log_event("phase", phase=phase, status=status, **payload)
 
     def log_tool_call(self, tool: str, **kwargs: Any) -> None:
+        if not self.enabled:
+            return
         self._tool_call_count += 1
         self.log_event("tool_call", tool=tool, kwargs=kwargs)
 
@@ -105,6 +107,8 @@ class TrajectoryTracer:
         latency_ms: int,
         result_preview: str,
     ) -> None:
+        if not self.enabled:
+            return
         if not ok:
             self._tool_error_count += 1
         self.log_event(
@@ -125,6 +129,8 @@ class TrajectoryTracer:
 
     def complete(self, status: str, report_text: str | None = None, error: str | None = None) -> None:
         """Finalize trajectory and write summary JSON."""
+        if not self.enabled:
+            return
         self.log_event("run_completed", status=status, error=error)
 
         report_sha = None

@@ -27,6 +27,7 @@ from trajectory_tracing import TrajectoryTracer, tracing_context
 
 
 logger = logging.getLogger(__name__)
+_CALCULATOR_EXPR_RE = re.compile(r"^[0-9\.\+\-\*\/%\(\)\s]+$")
 
 
 class PlanningState(TypedDict, total=False):
@@ -99,6 +100,21 @@ def _fallback_steps(topic: str) -> list[dict[str, Any]]:
             "expected_output": "Sample CAGR computation template.",
         },
     ]
+
+
+def _is_valid_calculator_expression(expression: str) -> bool:
+    """Validate calculator input as a plain arithmetic expression."""
+    text = expression.strip()
+    if not text:
+        return False
+    if len(text) > 200:
+        return False
+    if not _CALCULATOR_EXPR_RE.fullmatch(text):
+        return False
+    # Block repeated operators commonly produced by malformed text.
+    if "++" in text or "--" in text or "//" in text:
+        return False
+    return True
 
 
 class LangGraphPlanningWorkflow:
@@ -177,6 +193,8 @@ Rules:
 - 4 to 7 steps total.
 - Prefer web_search for evidence gathering.
 - Use calculator only for metric computations.
+- For calculator steps, input MUST be a pure arithmetic expression
+  containing only numbers, spaces, parentheses, and operators (+ - * / %).
 - Ensure steps are sequential and coherent.
 """
         response = await self.llm.ainvoke(prompt)
@@ -254,6 +272,23 @@ Rules:
                     if tool_name == "web_search":
                         output = await web_search(tool_input)
                     elif tool_name == "calculator":
+                        if not _is_valid_calculator_expression(tool_input):
+                            output = (
+                                "ERROR: Invalid calculator expression format. "
+                                f"Expected arithmetic expression, got: {tool_input}"
+                            )
+                            errors.append(output)
+                            findings.append(
+                                {
+                                    "step_id": step_id,
+                                    "tool": tool_name,
+                                    "input": tool_input,
+                                    "ok": False,
+                                    "output": output,
+                                    "expected_output": step.get("expected_output", ""),
+                                }
+                            )
+                            continue
                         output = await calculator(tool_input)
                     else:
                         output = f"ERROR: Unsupported tool '{tool_name}'"
@@ -376,4 +411,3 @@ Requirements:
             if self.tracer:
                 self.tracer.complete(status="error", error=str(e))
             raise RuntimeError(f"LangGraph workflow failed: {str(e)}")
-

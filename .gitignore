@@ -14,5 +14,7 @@ __pycache__/
 # Runtime artifacts
 outputs/
 trajectories/
+test_outputs/
 planning_market_report.md
+planning_market_report_langgraph.md
 *.executed.ipynb
